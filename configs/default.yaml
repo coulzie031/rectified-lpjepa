@@ -1,17 +1,13 @@
-dataset: pathmnist
+dataset: OrganA+OrganB+OrganT
 data_dir: ./data
 backbone: tiny_cnn # options: tiny_cnn, resnet18, resnet50
 proj_dim: 64
 epochs: 1
 batch_size: 256
-eval_batch_size: 512
-image_size: 64 
+image_size: 64
 views: 4
 lamb: 0.02
 lr: 0.002
-radius: 3.0
-k: 5
-device: auto  
+device: auto
 num_workers: 4
 output_dir: ./outputs
-save_probe: true

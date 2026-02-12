@@ -1,11 +1,27 @@
-from typing import Tuple
+from typing import Dict, List, Tuple
 
 import medmnist
 from medmnist import INFO
 import torch
-from torch.utils.data import Dataset
+from torch.utils.data import ConcatDataset, Dataset
 from torchvision import transforms
 from PIL import Image
+
+
+# Map user-facing aliases onto the canonical MedMNIST identifiers.
+_DATASET_ALIASES: Dict[str, str] = {
+    "organa": "organamnist",
+    "organ_a": "organamnist",
+    "organamnist": "organamnist",
+    "organb": "organcmnist",
+    "organ_b": "organcmnist",
+    "organbmnist": "organcmnist",
+    "organcmnist": "organcmnist",
+    "organt": "organsmnist",
+    "organ_t": "organsmnist",
+    "organtmnist": "organsmnist",
+    "organsmnist": "organsmnist",
+}
 
 
 def _to_pil(img):
@@ -52,9 +68,40 @@ class MultiViewMedMNIST(Dataset):
 
 
 def get_medmnist_datasets(name: str, data_dir: str) -> Tuple[dict, Dataset, Dataset, Dataset]:
-    info = INFO[name]
-    DataClass = getattr(medmnist, info["python_class"])
-    train_ds = DataClass(split="train", download=True, root=data_dir)
-    val_ds = DataClass(split="val", download=True, root=data_dir)
-    test_ds = DataClass(split="test", download=True, root=data_dir)
-    return info, train_ds, val_ds, test_ds
+    raw_names: List[str] = [chunk.strip() for chunk in name.split("+") if chunk.strip()]
+    resolved: List[str] = []
+    for chunk in raw_names:
+        key = chunk.lower()
+        resolved.append(_DATASET_ALIASES.get(key, key))
+
+    if not resolved:
+        raise ValueError("No MedMNIST dataset specified.")
+
+    if len(resolved) == 1:
+        dataset_name = resolved[0]
+        info = INFO[dataset_name]
+        DataClass = getattr(medmnist, info["python_class"])
+        train_ds = DataClass(split="train", download=True, root=data_dir)
+        val_ds = DataClass(split="val", download=True, root=data_dir)
+        test_ds = DataClass(split="test", download=True, root=data_dir)
+        return info, train_ds, val_ds, test_ds
+
+    infos = []
+    train_parts = []
+    val_parts = []
+    test_parts = []
+    for dataset_name in resolved:
+        info = INFO[dataset_name]
+        infos.append({"name": dataset_name, "n_classes": info.get("n_classes"), "label": info.get("label")})
+        DataClass = getattr(medmnist, info["python_class"])
+        train_parts.append(DataClass(split="train", download=True, root=data_dir))
+        val_parts.append(DataClass(split="val", download=True, root=data_dir))
+        test_parts.append(DataClass(split="test", download=True, root=data_dir))
+
+    merged_info = {
+        "name": "+".join(resolved),
+        "n_classes": sum((entry.get("n_classes") or 0) for entry in infos),
+        "components": infos,
+    }
+
+    return merged_info, ConcatDataset(train_parts), ConcatDataset(val_parts), ConcatDataset(test_parts)

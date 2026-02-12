@@ -10,7 +10,6 @@ from tqdm import tqdm
 from src.losses.sigreg import SIGReg, invariance_loss
 from src.models.encoder import LeJEPAEncoder
 from src.datasets.medmnist_data import get_medmnist_datasets, MultiViewMedMNIST
-from src.utils.eval import linear_probe, evaluate_probe, knn_eval
 
 
 def make_logger(log_path: Path):
@@ -98,7 +97,6 @@ def parse_args():
     p.add_argument("--backbone", help="Override backbone")
     p.add_argument("--epochs", type=int, help="Override epochs")
     p.add_argument("--batch-size", type=int, help="Override SSL batch size")
-    p.add_argument("--eval-batch-size", type=int, help="Override eval batch size")
     p.add_argument("--views", type=int, help="Override number of views")
     p.add_argument("--lr", type=float, help="Override learning rate")
     p.add_argument("--device", help="cpu/cuda/auto")
@@ -106,11 +104,9 @@ def parse_args():
     return p.parse_args()
 
 
-def save_artifacts(model, probe, cfg, save_dir: Path, run_record: dict):
+def save_artifacts(model, cfg, save_dir: Path, run_record: dict):
     save_dir.mkdir(parents=True, exist_ok=True)
     torch.save({"backbone": model.backbone.state_dict(), "proj": model.proj.state_dict()}, save_dir / "encoder.pt")
-    if probe is not None and cfg.get("save_probe", True):
-        torch.save(probe.state_dict(), save_dir / "probe.pt")
     with (save_dir / "config.json").open("w") as f:
         json.dump(cfg, f, indent=2)
     with (save_dir / "run_record.json").open("w") as f:
@@ -125,7 +121,6 @@ def main():
         "backbone": args.backbone,
         "epochs": args.epochs,
         "batch_size": args.batch_size,
-        "eval_batch_size": args.eval_batch_size,
         "views": args.views,
         "lr": args.lr,
         "device": args.device,
@@ -134,18 +129,10 @@ def main():
     cfg = load_config(cfg_path, overrides)
 
     device = torch.device(cfg["device"])
-    info, train_ds_raw, val_ds_raw, test_ds_raw = get_medmnist_datasets(cfg["dataset"], cfg["data_dir"])
-    num_classes = int(info.get("n_classes", len(info.get("label", []))))
-
+    info, train_ds_raw, _, _ = get_medmnist_datasets(cfg["dataset"], cfg["data_dir"])
     train_ssl = MultiViewMedMNIST(train_ds_raw, V=cfg["views"], image_size=cfg["image_size"], train=True)
-    train_eval = MultiViewMedMNIST(train_ds_raw, V=1, image_size=cfg["image_size"], train=False)
-    val_eval = MultiViewMedMNIST(val_ds_raw, V=1, image_size=cfg["image_size"], train=False)
-    test_eval = MultiViewMedMNIST(test_ds_raw, V=1, image_size=cfg["image_size"], train=False)
 
     ssl_loader = DataLoader(train_ssl, batch_size=cfg["batch_size"], shuffle=True, num_workers=cfg.get("num_workers", 4), drop_last=True, pin_memory=True)
-    train_loader = DataLoader(train_eval, batch_size=cfg["eval_batch_size"], shuffle=False, num_workers=cfg.get("num_workers", 4), pin_memory=True)
-    val_loader = DataLoader(val_eval, batch_size=cfg["eval_batch_size"], shuffle=False, num_workers=cfg.get("num_workers", 4), pin_memory=True)
-    test_loader = DataLoader(test_eval, batch_size=cfg["eval_batch_size"], shuffle=False, num_workers=cfg.get("num_workers", 4), pin_memory=True)
 
     model = LeJEPAEncoder(cfg["backbone"], cfg["proj_dim"]).to(device)
     sigreg = SIGReg().to(device)
@@ -153,31 +140,21 @@ def main():
     save_dir = Path(cfg["output_dir"]) / cfg["dataset"] / cfg["backbone"]
     log_event = make_logger(save_dir / "logs.jsonl")
     run_record = build_run_record(cfg, model, sigreg)
-    log_event({"phase": "config", "config": cfg, "cmd": run_record["cmd"]})
+    log_event({
+        "phase": "config",
+        "config": cfg,
+        "cmd": run_record["cmd"],
+        "dataset": {
+            "name": info.get("name", cfg["dataset"]),
+            "train_examples": len(train_ds_raw),
+        },
+    })
 
     print("Starting pretraining...")
     pretrain(cfg, model, sigreg, ssl_loader, device, log_event=log_event)
 
-    print("Training linear probe...")
-    probe = linear_probe(model, train_loader, val_loader, num_classes, device, log_event=log_event)
-    test_acc = evaluate_probe(model, probe, test_loader, device)
-    print(f"[probe] test_acc={test_acc:.4f}")
-    log_event({"phase": "test_probe", "test_acc": test_acc})
-
-    print("Running radius-based kNN...")
-    knn_acc = knn_eval(
-        model,
-        train_loader,
-        test_loader,
-        num_classes,
-        radius=cfg["radius"],
-        k=cfg["k"],
-        device=device,
-        log_event=log_event,
-    )
-
-    save_artifacts(model, probe, cfg, save_dir, run_record)
-    print(f"Saved encoder/probe and run_record to {save_dir}")
+    save_artifacts(model, cfg, save_dir, run_record)
+    print(f"Saved encoder and run_record to {save_dir}")
 
 
 if __name__ == "__main__":
