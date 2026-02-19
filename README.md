@@ -11,12 +11,19 @@ Clean layout with configs and src:
 pip install torch torchvision timm medmnist pyyaml tqdm
 ```
 
-2) Run with defaults (PathMNIST, tiny CNN):
+2) Install lejepa package (editable for dev):
+```bash
+git clone https://github.com/galilai-group/lejepa
+cd lejepa
+pip install -e .
+```
+
+3) Run with defaults (PathMNIST, tiny CNN):
 ```bash
 python -m src.medmnist_train --config configs/default.yaml
 ```
 
-3) Override on CLI, e.g., use ResNet18 and more epochs:
+4) Override on CLI, e.g., use Resnet18 and more epochs:
 ```bash
 python -m src.medmnist_train --config configs/default.yaml \
   --backbone resnet18 --epochs 20 --views 6 --lr 1e-3

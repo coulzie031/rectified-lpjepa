@@ -7,7 +7,8 @@ import yaml
 from torch.utils.data import DataLoader
 from tqdm import tqdm
 
-from src.losses.sigreg import SIGReg, invariance_loss
+import lejepa
+from src.losses.sigreg import invariance_loss
 from src.models.encoder import LeJEPAEncoder
 from src.datasets.medmnist_data import get_medmnist_datasets, MultiViewMedMNIST
 
@@ -23,7 +24,8 @@ def make_logger(log_path: Path):
     return _log
 
 
-def build_run_record(cfg: dict, model: LeJEPAEncoder, sigreg: SIGReg) -> dict:
+def build_run_record(cfg: dict, model: LeJEPAEncoder, sigreg) -> dict:
+    # Safely access attributes or just log the config
     return {
         "config": cfg,
         "model": {
@@ -32,9 +34,9 @@ def build_run_record(cfg: dict, model: LeJEPAEncoder, sigreg: SIGReg) -> dict:
             "num_features": getattr(model.backbone, "num_features", None),
         },
         "sigreg": {
-            "knots": getattr(sigreg, "knots", None),
-            "t_max": getattr(sigreg, "t_max", None),
-            "proj_samples": getattr(sigreg, "proj_samples", None),
+            # Update these keys based on what lejepa exposes, or use defaults from cfg
+            "type": "lejepa.SlicingUnivariateTest",
+            # "knots": ... (optional)
         },
         "cmd": " ".join(sys.argv),
     }
@@ -64,7 +66,8 @@ def pretrain(cfg, model, sigreg, loader, device, log_event=None):
             with torch.cuda.amp.autocast(enabled=device.type == "cuda"):
                 emb, proj = model(views)
                 inv = invariance_loss(proj)
-                sig = sigreg(proj)
+                flat_proj = proj.flatten(0, 1)
+                sig = sigreg(flat_proj)
                 loss = cfg["lamb"] * sig + (1 - cfg["lamb"]) * inv
             opt.zero_grad()
             scaler.scale(loss).backward()
@@ -135,7 +138,13 @@ def main():
     ssl_loader = DataLoader(train_ssl, batch_size=cfg["batch_size"], shuffle=True, num_workers=cfg.get("num_workers", 4), drop_last=True, pin_memory=True)
 
     model = LeJEPAEncoder(cfg["backbone"], cfg["proj_dim"]).to(device)
-    sigreg = SIGReg().to(device)
+    univariate_test = lejepa.univariate.EppsPulley(
+        n_points=17  # You can uses cfg.get("knots", 17)
+    )
+    sigreg = lejepa.multivariate.SlicingUnivariateTest(
+        univariate_test=univariate_test, 
+        num_slices=1024 # You can use cfg.get("proj_samples", 1024)
+    ).to(device)
 
     save_dir = Path(cfg["output_dir"]) / cfg["dataset"] / cfg["backbone"]
     log_event = make_logger(save_dir / "logs.jsonl")

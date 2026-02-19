@@ -67,41 +67,44 @@ class MultiViewMedMNIST(Dataset):
         return views, label
 
 
-def get_medmnist_datasets(name: str, data_dir: str) -> Tuple[dict, Dataset, Dataset, Dataset]:
+def resolve_dataset_names(name: str) -> List[str]:
     raw_names: List[str] = [chunk.strip() for chunk in name.split("+") if chunk.strip()]
-    resolved: List[str] = []
-    for chunk in raw_names:
-        key = chunk.lower()
-        resolved.append(_DATASET_ALIASES.get(key, key))
-
+    resolved = [_DATASET_ALIASES.get(chunk.lower(), chunk.lower()) for chunk in raw_names]
     if not resolved:
         raise ValueError("No MedMNIST dataset specified.")
+    return resolved
 
+
+def load_single_medmnist(name: str, data_dir: str) -> Tuple[dict, Dataset, Dataset, Dataset]:
+    info = INFO[name]
+    DataClass = getattr(medmnist, info["python_class"])
+    train_ds = DataClass(split="train", download=True, root=data_dir)
+    val_ds = DataClass(split="val", download=True, root=data_dir)
+    test_ds = DataClass(split="test", download=True, root=data_dir)
+    return info, train_ds, val_ds, test_ds
+
+
+def get_medmnist_datasets(name: str, data_dir: str) -> Tuple[dict, Dataset, Dataset, Dataset]:
+    resolved = resolve_dataset_names(name)
     if len(resolved) == 1:
-        dataset_name = resolved[0]
-        info = INFO[dataset_name]
-        DataClass = getattr(medmnist, info["python_class"])
-        train_ds = DataClass(split="train", download=True, root=data_dir)
-        val_ds = DataClass(split="val", download=True, root=data_dir)
-        test_ds = DataClass(split="test", download=True, root=data_dir)
-        return info, train_ds, val_ds, test_ds
+        return load_single_medmnist(resolved[0], data_dir)
 
     infos = []
     train_parts = []
     val_parts = []
     test_parts = []
     for dataset_name in resolved:
-        info = INFO[dataset_name]
+        info, train_ds, val_ds, test_ds = load_single_medmnist(dataset_name, data_dir)
         infos.append({"name": dataset_name, "n_classes": info.get("n_classes"), "label": info.get("label")})
-        DataClass = getattr(medmnist, info["python_class"])
-        train_parts.append(DataClass(split="train", download=True, root=data_dir))
-        val_parts.append(DataClass(split="val", download=True, root=data_dir))
-        test_parts.append(DataClass(split="test", download=True, root=data_dir))
+        train_parts.append(train_ds)
+        val_parts.append(val_ds)
+        test_parts.append(test_ds)
 
     merged_info = {
         "name": "+".join(resolved),
         "n_classes": sum((entry.get("n_classes") or 0) for entry in infos),
         "components": infos,
+        "resolved": resolved,
     }
 
     return merged_info, ConcatDataset(train_parts), ConcatDataset(val_parts), ConcatDataset(test_parts)
