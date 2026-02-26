@@ -1,13 +1,53 @@
+# =============================================================================
+# Rectified LpJEPA — Configuration
+# =============================================================================
+
+# --- Dataset ---
 dataset: OrganA+OrganB+OrganT
 data_dir: ./data
-backbone: tiny_cnn # options: tiny_cnn, resnet18, resnet50
-proj_dim: 64
-epochs: 1
-batch_size: 256
 image_size: 64
-views: 4
-lamb: 0.02
-lr: 0.002
-device: auto
+views: 4               # number of augmented views per sample
+
+# --- Model ---
+backbone: tiny_cnn     # options: tiny_cnn | resnet18 | resnet50
+proj_dim: 512          # projector output dimension (↑ from 64 — recommended by paper)
+proj_hidden_dim: 512   # projector hidden dimension
+
+# --- Training ---
+epochs: 200            # use 200+ for good representations (1000 for best results)
+batch_size: 256        # works well even at small batch sizes
+lr: 0.03               # backbone + projector learning rate (LARS)
+classifier_lr: 0.01    # linear probe classifier learning rate
+weight_decay: 1e-4     # following VICReg convention
+warmup_epochs: 10      # linear warmup then cosine decay
 num_workers: 4
+
+# --- Loss Weights ---
+lamb_inv: 25.0         # invariance loss weight  (λ_inv)
+lamb_rdm: 125.0        # RDMReg loss weight       (λ_rdm)
+# Note: lamb_inv=25 and lamb_rdm=125 are the paper's recommended values
+
+# --- RGG Distribution Parameters ---
+# These control the sparsity-performance tradeoff of Rectified LpJEPA
+p: 1.0                 # Lp norm parameter:
+                       #   p=1.0 → Rectified Laplace (default, best tradeoff)
+                       #   p=2.0 → Rectified Gaussian (dense, equivalent to LeJEPA)
+                       #   p=0.5 → sparser than Laplace
+mu: 0.0                # mean shift — controls expected L0 sparsity:
+                       #   mu=0.0  → ~50% sparsity
+                       #   mu=-1.0 → ~84% sparsity
+                       #   mu=-2.0 → ~98% sparsity (very sparse)
+                       #   mu=0.5  → ~30% sparsity (denser)
+num_projections: 8192  # Cramér-Wold random projections (8192 is sufficient in practice)
+
+# --- Logging ---
 output_dir: ./outputs
+
+# =============================================================================
+# Quick experiment presets (override from CLI with --mu, --p, etc.)
+# =============================================================================
+# Baseline (dense, LeJEPA-equivalent):  p=2.0, mu=0.0
+# Default Rectified (sparse Laplace):   p=1.0, mu=0.0
+# Moderate sparsity:                    p=1.0, mu=-1.0
+# High sparsity:                        p=1.0, mu=-2.0
+# =============================================================================
