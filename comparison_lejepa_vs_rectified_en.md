@@ -131,16 +131,28 @@ With default parameters (p=1.0, mu=0.0), roughly **50% of dimensions** will be z
 ## 6. Training Metrics
 
 ### LeJEPA (Antoine)
-Displays only: `loss` (combination of inv + sig)
+Displays only: `loss` (combination of inv + sig). There is no way to know which component is dominating or whether sparsity is being achieved — the training is a black box.
 
 ### Rectified LpJEPA
-Additionally displays:
-- **`inv`**: invariance loss alone
-- **`rdm`**: RDMReg loss alone
-- **`l0`**: fraction of exactly-zero dimensions (strict sparsity)
-- **`l1`**: L1/L2 ratio (global sparsity measure)
+Displays 6 metrics at every epoch:
 
-These metrics allow direct monitoring of whether the target sparsity is being achieved throughout training.
+| Abbreviation | Full name | What it measures |
+|---|---|---|
+| `loss` | Total loss | Weighted sum of all components — the main number to watch. Should decrease over time. |
+| `inv` | Invariance loss | How similar the representations are across different augmented views of the same image. Lower = better alignment. |
+| `rdm` | RDMReg loss | Sliced Wasserstein distance between features and the RGG target. Lower = features are closer to the target sparse distribution. |
+| `l0` | L0 norm | Fraction of feature dimensions that are **exactly zero**. Strict sparsity measure — 0.0 means no zeros yet, 1.0 means all zeros. Starts at 0 and should grow during training. |
+| `l1` | L1 norm ratio | L1/L2 norm ratio — a softer measure of sparsity. Lower = sparser representations. Decreases gradually as training progresses. |
+| `lr` | Learning rate | Step size used by the optimizer. Starts low (warmup, first 10 epochs), reaches max 0.03, then decreases following a cosine schedule until the end of training. |
+
+### Why does Rectified LpJEPA track more metrics?
+
+Because sparsity is the **core objective** of the method, it needs to be measured explicitly. With LeJEPA, you only know if the total loss goes down. With Rectified LpJEPA, you can directly verify that:
+1. The invariance is being learned (`inv` ↓)
+2. The distribution matching is working (`rdm` ↓)
+3. The representations are actually becoming sparse (`l0` ↑, `l1` ↓)
+
+This makes the training much more interpretable and easier to debug.
 
 ---
 
