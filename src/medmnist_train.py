@@ -55,7 +55,7 @@ class LARS(torch.optim.Optimizer):
     @torch.no_grad()
     def step(self):
         for group in self.param_groups:
-            wd = group["weight_decay"]
+            wd = float(group["weight_decay"])
             momentum = group["momentum"]
             eta = group["eta"]
             eps = group["eps"]
